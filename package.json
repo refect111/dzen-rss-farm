@@ -1,0 +1,26 @@
+{
+  "name": "dzen-rss-farm",
+  "version": "1.0.0",
+  "description": "Автогенерация статей для Яндекс Дзен через OpenAI + RSS",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "generate": "node index.js --generate-now"
+  },
+  "keywords": [
+    "dzen",
+    "rss",
+    "openai",
+    "automation"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.22.2",
+    "node-cron": "^4.2.1",
+    "openai": "^4.104.0",
+    "rss": "^1.2.2"
+  }
+}

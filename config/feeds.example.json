@@ -1,0 +1,55 @@
+{
+  "feeds": [
+    {
+      "url": "https://lenta.ru/rss/news",
+      "name": "Лента.ру",
+      "category": "новости",
+      "enabled": true
+    },
+    {
+      "url": "https://www.rbc.ru/arc/outgoing/rss.rbc.ru/rbcnews.online.rss",
+      "name": "РБК",
+      "category": "экономика",
+      "enabled": true
+    },
+    {
+      "url": "https://meduza.io/rss/all",
+      "name": "Медуза",
+      "category": "новости",
+      "enabled": false
+    },
+    {
+      "url": "https://tass.ru/rss/v2.xml",
+      "name": "ТАСС",
+      "category": "политика",
+      "enabled": true
+    },
+    {
+      "url": "https://www.gazeta.ru/export/rss/first.xml",
+      "name": "Газета.ру",
+      "category": "общество",
+      "enabled": true
+    }
+  ],
+  "filter": {
+    "minContentLength": 100,
+    "maxAgeHours": 24,
+    "blockedKeywords": [],
+    "requiredKeywords": []
+  },
+  "processing": {
+    "maxLength": 5000,
+    "includeSource": true
+  },
+  "publishing": {
+    "batchSize": 3,
+    "delayBetweenPostsMs": 60000,
+    "publisher": "dzen"
+  },
+  "schedule": {
+    "fetchCron": "0 */3 * * *",
+    "publishCron": "30 */3 * * *",
+    "timezone": "Europe/Moscow",
+    "runOnStart": true
+  }
+}
