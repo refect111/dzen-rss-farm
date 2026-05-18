@@ -11,7 +11,7 @@ const path    = require('path');
 
 // ─── Конфигурация ────────────────────────────────────────────────────────────
 
-const PORT      = process.env.PORT || 3000;
+const PORT      = process.env.PORT;
 const DATA_FILE = path.join(__dirname, 'articles.json');
 
 if (!process.env.OPENAI_API_KEY) {
