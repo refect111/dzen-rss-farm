@@ -1,5 +1,7 @@
 'use strict';
 
+console.log('PORT от Railway:', process.env.PORT);
+
 require('dotenv').config();
 
 const express = require('express');
