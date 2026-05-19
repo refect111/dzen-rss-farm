@@ -270,7 +270,8 @@ function splitText(text, maxLen = 4096) {
 async function overlayTitleOnImage(imageBuffer, title) {
   const words = title.split(' ').slice(0, 5).join(' ');
 
-  const img    = await loadImage(imageBuffer);
+  const buf    = Buffer.isBuffer(imageBuffer) ? imageBuffer : Buffer.from(imageBuffer);
+  const img    = await loadImage(`data:image/png;base64,${buf.toString('base64')}`);
   const canvas = createCanvas(img.width, img.height);
   const ctx    = canvas.getContext('2d');
 
