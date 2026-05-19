@@ -2,7 +2,9 @@
 
 console.log('PORT от Railway:', process.env.PORT);
 
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 
 const express = require('express');
 const cron    = require('node-cron');
