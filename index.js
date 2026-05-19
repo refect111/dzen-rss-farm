@@ -267,7 +267,7 @@ function splitText(text, maxLen = 4096) {
 async function generateDalleImage(dallePrompt) {
   let res;
   try {
-    res = await fetch('https://api.openai.com/v1/images/generate', {
+    res = await fetch('https://api.openai.com/v1/images/generations', {
       method:  'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
