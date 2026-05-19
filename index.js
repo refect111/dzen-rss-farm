@@ -375,6 +375,8 @@ async function downloadAndValidateImage(url) {
 }
 
 async function sendTelegramPhotoBuffer(channelId, imageBuffer, caption = '', parseMode = 'HTML') {
+  console.log(`    [DEBUG] Отправляю фото в канал: ${channelId}, размер буфера: ${imageBuffer.byteLength} байт`);
+
   const form = new FormData();
   form.append('chat_id', channelId);
   form.append('photo', new Blob([imageBuffer], { type: 'image/png' }), 'image.png');
@@ -391,6 +393,7 @@ async function sendTelegramPhotoBuffer(channelId, imageBuffer, caption = '', par
   }
 
   const json = await res.json();
+  console.log(`    [DEBUG] Telegram ответ: ${JSON.stringify(json)}`);
   if (!json.ok) {
     throw new Error(`Telegram sendPhoto [${json.error_code ?? res.status}]: ${json.description}`);
   }
