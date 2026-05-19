@@ -437,6 +437,33 @@ async function postToTelegram(channelId, imageBuffer, title, body, hashtags) {
   }
 }
 
+// ─── Проверка бренда и артикулов WB (третий проход) ──────────────────────────
+
+async function enforceBrandAndArticle(body, topic, brand) {
+  const productList = JSON.stringify(PRODUCTS[brand] || []);
+
+  const prompt = `Вот список товаров бренда ${brand}:
+${productList}
+
+Выбери из списка 1-2 товара которые наиболее подходят по теме статьи: «${topic}».
+Используй их артикулы wb при упоминании в тексте.
+
+Проверь текст: если нет бренда ${brand} — добавь один раз естественно.
+Если нет артикула WB — добавь в предпоследний абзац фразу типа "нашла на Wildberries (артикул XXXXXXXXX)" с реальным артикулом из списка.
+Верни только исправленный текст без пояснений.`;
+
+  const resp = await openai.chat.completions.create({
+    model:       'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: prompt },
+      { role: 'user',   content: body },
+    ],
+    max_tokens:  2800,
+    temperature: 0.2,
+  });
+  return resp.choices[0].message.content.trim();
+}
+
 // ─── Редактура статьи (второй проход) ────────────────────────────────────────
 
 async function editArticle(body) {
@@ -527,6 +554,15 @@ async function generateAll() {
         console.log(`  [${account.name}] ✓ Редактура завершена`);
       } catch (err) {
         console.error(`  [${account.name}] ✗ Ошибка редактуры, используем оригинал: ${err.message}`);
+      }
+
+      // ── Этап 2б: проверка бренда и артикулов WB ───────────────────────────
+      try {
+        console.log(`  [${account.name}] → Проверяю бренд и артикулы WB...`);
+        body = await enforceBrandAndArticle(body, topic, brand);
+        console.log(`  [${account.name}] ✓ Бренд и артикулы WB проверены`);
+      } catch (err) {
+        console.error(`  [${account.name}] ✗ Ошибка проверки бренда/артикулов, используем предыдущую версию: ${err.message}`);
       }
 
       // ── Этап 3: генерация картинки DALL-E ────────────────────────────────
