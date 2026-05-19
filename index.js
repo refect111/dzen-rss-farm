@@ -286,6 +286,8 @@ async function generateDalleImage(dallePrompt) {
   }
 
   const text = await res.text();
+  console.log(`    [DEBUG] OpenAI статус: ${res.status}, длина ответа: ${text.length} символов`);
+  console.log(`    [DEBUG] Первые 500 символов: ${text.slice(0, 500)}`);
   let json;
   try { json = JSON.parse(text); }
   catch(e) { throw new Error(`Ошибка парсинга ответа OpenAI: ${text.slice(0, 200)}`); }
