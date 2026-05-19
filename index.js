@@ -20,8 +20,14 @@ if (!process.env.OPENAI_API_KEY) {
   console.error('Ошибка: переменная OPENAI_API_KEY не задана. Создайте файл .env');
   process.exit(1);
 }
+if (!process.env.TELEGRAM_BOT_TOKEN) {
+  console.error('Ошибка: переменная TELEGRAM_BOT_TOKEN не задана. Создайте файл .env');
+  process.exit(1);
+}
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai          = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const TELEGRAM_TOKEN  = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_API    = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
 // ─── Аккаунты ────────────────────────────────────────────────────────────────
 
@@ -29,8 +35,9 @@ const BRANDS = ['ПУШХИМ', 'DEZINSECTO'];
 
 const ACCOUNTS = [
   {
-    id:   'pushhim',
-    name: 'Антонина Петровна',
+    id:              'pushhim',
+    name:            'Антонина Петровна',
+    telegramChannel: '@sekrety_baby_toni',
     feedTitle:       'Антонина Петровна — Советы от соседки',
     feedDescription: 'Живые истории и находки по борьбе с домашними вредителями от Антонины Петровны, 62 года.',
     topics: [
@@ -47,8 +54,9 @@ const ACCOUNTS = [
       `Ты — Антонина Петровна, 62 года. Современная бабушка которая освоила маркетплейсы и не даёт себя в обиду. Полгода живёшь в старом фонде (война с соседями, мусоропровод, тараканы и блохи из подвала), полгода на даче (куры, рассада, мухи, пероед у курочек). Пишешь статью для Яндекс Дзен. Стиль — как заботливая соседка которая делится находкой. Живо, тепло, с юмором. Структура: 1) Цепляющее начало — личная история с проблемой 2) Почему старые методы не помогли 3) Как нашла решение на маркетплейсе 4) Результат честно 5) Практический совет 6) Естественное упоминание бренда ${brand}. Заголовок — крик души, вопрос или восклицание. Длина 700-900 слов. Пиши на русском языке. Текст статьи в HTML с тегами <h2>, <p>, <ul>, <li>, <strong>.`,
   },
   {
-    id:   'dezinsecto',
-    name: 'Илья',
+    id:              'dezinsecto',
+    name:            'Илья',
+    telegramChannel: '@economniy_hoz',
     feedTitle:       'Илья — Честный тест-драйв средств от вредителей',
     feedDescription: 'Реальные истории и тест-драйвы от молодого главы семьи. Без воды, с самоиронией.',
     topics: [
@@ -65,8 +73,9 @@ const ACCOUNTS = [
       `Ты — Илья, 32 года. Молодой глава семьи, ипотечник, есть собака и маленький ребёнок. Пишешь для Дзен в формате тест-драйва. Стиль — современный, без воды, с самоиронией. Структура: 1) Конкретная ситуация — привёз клопов, купил диван с сюрпризом, собака принесла блох 2) Первые ошибки 3) Как нашёл решение на маркетплейсе 4) Честный тест-драйв с результатом 5) Сколько сэкономил 6) Рекомендация с упоминанием ${brand}. Заголовок — как пишут другу в мессенджер. Длина 700-900 слов. Пиши на русском языке. Текст статьи в HTML с тегами <h2>, <p>, <ul>, <li>, <strong>.`,
   },
   {
-    id:   'expert',
-    name: 'Про Хозяйство',
+    id:              'expert',
+    name:            'Про Хозяйство',
+    telegramChannel: '@pro_hoz',
     feedTitle:       'Про Хозяйство — Советы опытного хозяина',
     feedDescription: 'Честные советы по борьбе с вредителями от опытного хозяина загородного дома с курятником, баней и погребом.',
     topics: [
@@ -86,7 +95,7 @@ const ACCOUNTS = [
 
 // ─── Хранилище статей ─────────────────────────────────────────────────────────
 
-let store = {}; // { accountId: [ { guid, title, html, pubDate } ] }
+let store = {};
 
 function loadStore() {
   if (fs.existsSync(DATA_FILE)) {
@@ -100,11 +109,107 @@ function saveStore() {
   fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2), 'utf8');
 }
 
-// ─── Генерация статьи ─────────────────────────────────────────────────────────
+// ─── Вспомогательные функции ──────────────────────────────────────────────────
 
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// Конвертация HTML статьи в формат Telegram (поддерживает <b>, <i>, <u>)
+function htmlToTelegram(html) {
+  return html
+    .replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n<b>$1</b>\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<p[^>]*>/gi, '')
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '• $1\n')
+    .replace(/<\/?[uo]l[^>]*>/gi, '\n')
+    .replace(/<strong>([\s\S]*?)<\/strong>/gi, '<b>$1</b>')
+    .replace(/<em>([\s\S]*?)<\/em>/gi, '<i>$1</i>')
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Оставляем только теги, которые понимает Telegram
+    .replace(/<(?!\/?b>|\/?i>|\/?u>|\/?code>|\/?pre>)[^>]+>/gi, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// Разбивка длинного текста на чанки (лимит Telegram — 4096 символов)
+function splitText(text, maxLen = 4096) {
+  if (text.length <= maxLen) return [text];
+  const chunks = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = start + maxLen;
+    if (end < text.length) {
+      const lastBreak = text.lastIndexOf('\n\n', end);
+      if (lastBreak > start + maxLen / 2) end = lastBreak;
+    }
+    chunks.push(text.slice(start, end).trim());
+    start = end;
+  }
+  return chunks.filter(c => c.length > 0);
+}
+
+// ─── DALL-E генерация изображения ─────────────────────────────────────────────
+
+async function generateDalleImage(dallePrompt) {
+  const response = await openai.images.generate({
+    model:   'dall-e-3',
+    prompt:  dallePrompt,
+    n:       1,
+    size:    '1024x1024',
+    quality: 'standard',
+  });
+  return response.data[0].url;
+}
+
+// ─── Telegram API ─────────────────────────────────────────────────────────────
+
+async function tgRequest(method, body) {
+  const res = await fetch(`${TELEGRAM_API}/${method}`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(`Telegram ${method}: ${json.description}`);
+  return json;
+}
+
+async function sendTelegramPhoto(channelId, photoUrl) {
+  return tgRequest('sendPhoto', { chat_id: channelId, photo: photoUrl });
+}
+
+async function sendTelegramMessage(channelId, text, parseMode = 'HTML') {
+  const chunks = splitText(text, 4096);
+  for (const chunk of chunks) {
+    await tgRequest('sendMessage', { chat_id: channelId, text: chunk, parse_mode: parseMode });
+    if (chunks.length > 1) await new Promise(r => setTimeout(r, 800));
+  }
+}
+
+async function postToTelegram(channelId, imageUrl, title, html, hashtags) {
+  // 1. Фото
+  if (imageUrl) {
+    await sendTelegramPhoto(channelId, imageUrl);
+    await new Promise(r => setTimeout(r, 600));
+  }
+
+  // 2. Текст: жирный заголовок + статья + хэштеги
+  const telegramBody = htmlToTelegram(html);
+  const fullText = `<b>${escapeHtml(title)}</b>\n\n${telegramBody}\n\n${hashtags}`;
+  await sendTelegramMessage(channelId, fullText);
+}
+
+// ─── Генерация статьи ─────────────────────────────────────────────────────────
 
 async function generateArticle(account) {
   const topic = pickRandom(account.topics);
@@ -112,30 +217,42 @@ async function generateArticle(account) {
 
   const system = account.buildSystem(brand);
 
-  const user = [
-    `Напиши статью на тему: «${topic}».`,
-    ``,
-    `Формат ответа:`,
-    `ЗАГОЛОВОК: [заголовок согласно инструкции, до 90 символов]`,
-    ``,
-    `[Полный текст статьи в HTML]`,
-    ``,
-    `Начни текст сразу после строки ЗАГОЛОВОК: — не повторяй заголовок в теле статьи.`,
-  ].join('\n');
+  const user = `Напиши статью на тему: «${topic}».
+
+Формат ответа (строго соблюдай все 4 блока):
+
+ЗАГОЛОВОК: [заголовок согласно инструкции, до 90 символов]
+
+[Полный текст статьи в HTML]
+
+КАРТИНКА: [описание сцены на английском для DALL-E: реалистичная бытовая или дачная сцена по теме статьи, светлые тона, никакого текста и надписей на изображении, 1-2 предложения]
+
+ХЭШТЕГИ: [6-8 тематических хэштегов для Telegram через пробел, формат #слово_подчёркиванием]`;
 
   const resp = await openai.chat.completions.create({
     model:       'gpt-4o-mini',
     messages:    [{ role: 'system', content: system }, { role: 'user', content: user }],
-    max_tokens:  2500,
+    max_tokens:  2800,
     temperature: 0.85,
   });
 
   const raw = resp.choices[0].message.content.trim();
-  const titleMatch = raw.match(/^ЗАГОЛОВОК:\s*(.+)/m);
-  const title = titleMatch ? titleMatch[1].trim() : topic;
-  const html  = raw.replace(/^ЗАГОЛОВОК:\s*.+\n?/m, '').trim();
 
-  return { title, html, topic, brand };
+  const titleMatch    = raw.match(/^ЗАГОЛОВОК:\s*(.+)/m);
+  const pictureMatch  = raw.match(/^КАРТИНКА:\s*(.+)/m);
+  const hashtagsMatch = raw.match(/^ХЭШТЕГИ:\s*(.+)/m);
+
+  const title      = titleMatch    ? titleMatch[1].trim()    : topic;
+  const dallePrompt = pictureMatch  ? pictureMatch[1].trim()  : `Realistic domestic scene related to "${topic}", bright natural lighting, clean interior, no text, no labels, photorealistic.`;
+  const hashtags   = hashtagsMatch ? hashtagsMatch[1].trim() : `#вредители #дом #дача #${brand.toLowerCase()}`;
+
+  // Извлекаем HTML: между ЗАГОЛОВОК и КАРТИНКА
+  let html = raw
+    .replace(/^ЗАГОЛОВОК:\s*.+\n?/m, '')
+    .replace(/\nКАРТИНКА:[\s\S]*/m, '')
+    .trim();
+
+  return { title, html, topic, brand, dallePrompt, hashtags };
 }
 
 // ─── Цикл генерации для всех аккаунтов ───────────────────────────────────────
@@ -146,24 +263,45 @@ async function generateAll() {
 
   for (const account of ACCOUNTS) {
     try {
-      console.log(`  → Генерирую для "${account.name}"...`);
-      const { title, html, topic } = await generateArticle(account);
+      console.log(`  → Генерирую статью для "${account.name}"...`);
+      const { title, html, topic, brand, dallePrompt, hashtags } = await generateArticle(account);
+      console.log(`  ✓ Статья: "${title}" (бренд: ${brand})`);
 
+      // Генерация картинки DALL-E
+      let imageUrl = null;
+      try {
+        console.log(`  → DALL-E: ${dallePrompt.slice(0, 80)}...`);
+        imageUrl = await generateDalleImage(dallePrompt);
+        console.log(`  ✓ Картинка сгенерирована`);
+      } catch (err) {
+        console.error(`  ✗ DALL-E ошибка: ${err.message}`);
+      }
+
+      // Публикация в Telegram
+      if (account.telegramChannel) {
+        try {
+          console.log(`  → Публикую в Telegram ${account.telegramChannel}...`);
+          await postToTelegram(account.telegramChannel, imageUrl, title, html, hashtags);
+          console.log(`  ✓ Опубликовано в Telegram`);
+        } catch (err) {
+          console.error(`  ✗ Telegram ошибка: ${err.message}`);
+        }
+      }
+
+      // Сохраняем в RSS-хранилище
       const article = {
         guid:    `${account.id}-${Date.now()}`,
         title,
         html,
         topic,
+        brand,
         pubDate: new Date().toISOString(),
       };
-
       store[account.id].unshift(article);
       if (store[account.id].length > 60) store[account.id].length = 60;
 
-      console.log(`  ✓ "${title}"`);
-
-      // Пауза между запросами к API
-      await new Promise(r => setTimeout(r, 3000));
+      // Пауза между аккаунтами
+      await new Promise(r => setTimeout(r, 4000));
     } catch (err) {
       console.error(`  ✗ Ошибка для "${account.name}": ${err.message}`);
     }
@@ -177,13 +315,13 @@ async function generateAll() {
 
 function buildFeed(account, baseUrl) {
   const feed = new RSS({
-    title:           account.feedTitle,
-    description:     account.feedDescription,
-    feed_url:        `${baseUrl}/rss/${account.id}`,
-    site_url:        baseUrl,
-    language:        'ru',
-    pubDate:         new Date(),
-    ttl:             60,
+    title:             account.feedTitle,
+    description:       account.feedDescription,
+    feed_url:          `${baseUrl}/rss/${account.id}`,
+    site_url:          baseUrl,
+    language:          'ru',
+    pubDate:           new Date(),
+    ttl:               60,
     custom_namespaces: { yandex: 'http://news.yandex.ru' },
   });
 
@@ -222,8 +360,8 @@ app.get('/', (req, res) => {
   const baseUrl = `${proto}://${req.headers.host}`;
 
   const rows = ACCOUNTS.map(a => {
-    const list  = store[a.id] || [];
-    const last  = list[0];
+    const list = store[a.id] || [];
+    const last = list[0];
     return `
       <tr>
         <td><b>${a.name}</b></td>
@@ -231,13 +369,14 @@ app.get('/', (req, res) => {
         <td>${last ? last.title : '—'}</td>
         <td>${last ? new Date(last.pubDate).toLocaleString('ru-RU') : '—'}</td>
         <td><a href="/rss/${a.id}" target="_blank">/rss/${a.id}</a></td>
+        <td>${a.telegramChannel}</td>
       </tr>`;
   }).join('');
 
   res.send(`<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
 <title>Dzen RSS Farm</title>
 <style>
-  body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  body { font-family: Arial, sans-serif; max-width: 1000px; margin: 40px auto; padding: 0 20px; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
   th { background: #f5f5f5; }
@@ -247,24 +386,22 @@ app.get('/', (req, res) => {
 </head><body>
 <h1>🌾 Dzen RSS Farm</h1>
 <p class="status">● Сервер работает</p>
-<p>Генерация статей: <b>каждый день в 09:00 (МСК)</b></p>
+<p>Генерация: <b>каждый день в 09:00 МСК</b> | OpenAI GPT-4o-mini + DALL-E 3 + Telegram</p>
 <table>
-  <tr><th>Аккаунт</th><th>Статей</th><th>Последняя статья</th><th>Дата</th><th>RSS-лента</th></tr>
+  <tr><th>Аккаунт</th><th>Статей</th><th>Последняя статья</th><th>Дата</th><th>RSS</th><th>Telegram</th></tr>
   ${rows}
 </table>
 <br>
 <form method="post" action="/generate">
-  <button type="submit" style="padding:8px 20px;cursor:pointer;">
-    ▶ Сгенерировать статьи сейчас
+  <button type="submit" style="padding:8px 20px;cursor:pointer;background:#007bff;color:#fff;border:none;border-radius:4px;">
+    ▶ Сгенерировать и опубликовать сейчас
   </button>
 </form>
-<p style="color:#888;font-size:13px">
-  RSS-URL для Яндекс Дзен: <code>${baseUrl}/rss/{id}</code>
-</p>
+<p style="color:#888;font-size:13px">RSS-URL для Яндекс Дзен: <code>${baseUrl}/rss/{id}</code></p>
 </body></html>`);
 });
 
-// Ручной запуск генерации (POST /generate)
+// Ручной запуск генерации
 app.post('/generate', (req, res) => {
   generateAll().catch(console.error);
   res.redirect('/');
@@ -274,22 +411,21 @@ app.post('/generate', (req, res) => {
 
 loadStore();
 
-// Расписание: каждый день в 09:00 по Москве
+// Расписание: каждый день в 09:00 МСК
 cron.schedule('0 9 * * *', () => {
   generateAll().catch(console.error);
 }, { timezone: 'Europe/Moscow' });
 
-// Немедленная генерация при запуске с флагом
 if (process.argv.includes('--generate-now')) {
   generateAll().catch(console.error);
 }
 
 app.listen(PORT, () => {
-  console.log('════════════════════════════════════════');
+  console.log('════════════════════════════════════════════════');
   console.log('  Dzen RSS Farm запущен');
   console.log(`  http://localhost:${PORT}`);
-  console.log('  RSS-ленты:');
-  ACCOUNTS.forEach(a => console.log(`    ${a.name}: http://localhost:${PORT}/rss/${a.id}`));
+  console.log('  Каналы:');
+  ACCOUNTS.forEach(a => console.log(`    ${a.name}: RSS /rss/${a.id} → Telegram ${a.telegramChannel}`));
   console.log('  Расписание: каждый день в 09:00 МСК');
-  console.log('════════════════════════════════════════');
+  console.log('════════════════════════════════════════════════');
 });
