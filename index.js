@@ -285,7 +285,11 @@ async function generateDalleImage(dallePrompt) {
     throw new Error(`DALL-E сетевая ошибка: ${err.message}`);
   }
 
-  const json = await res.json();
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); }
+  catch(e) { throw new Error(`Ошибка парсинга ответа OpenAI: ${text.slice(0, 200)}`); }
+
   if (!res.ok) {
     const detail = json?.error?.message ?? JSON.stringify(json);
     throw new Error(`DALL-E API error [${res.status}]: ${detail}`);
