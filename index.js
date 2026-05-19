@@ -267,17 +267,18 @@ function splitText(text, maxLen = 4096) {
 async function generateDalleImage(dallePrompt) {
   let res;
   try {
-    res = await fetch('https://api.openai.com/v1/images/generations', {
+    res = await fetch('https://api.openai.com/v1/images/generate', {
       method:  'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type':  'application/json',
       },
       body: JSON.stringify({
-        model:  'dall-e-3',
-        prompt: dallePrompt,
-        n:      1,
-        size:   '1792x1024',
+        model:   'gpt-image-1',
+        prompt:  dallePrompt,
+        n:       1,
+        size:    '1536x1024',
+        quality: 'standard',
       }),
     });
   } catch (err) {
@@ -290,9 +291,12 @@ async function generateDalleImage(dallePrompt) {
     throw new Error(`DALL-E API error [${res.status}]: ${detail}`);
   }
 
-  const url = json?.data?.[0]?.url;
-  if (!url) throw new Error('DALL-E вернул пустой ответ (нет URL изображения)');
-  return url;
+  // gpt-image-1 возвращает base64, а не URL
+  const b64 = json?.data?.[0]?.b64_json;
+  if (!b64) throw new Error('gpt-image-1 вернул пустой ответ');
+
+  // Конвертируем в data URL для дальнейшей передачи
+  return `data:image/png;base64,${b64}`;
 }
 
 // ─── Telegram API ─────────────────────────────────────────────────────────────
@@ -332,18 +336,29 @@ function validateImageBuffer(buffer) {
   return { ok: true };
 }
 
-// Скачивает картинку, валидирует и возвращает ArrayBuffer
-async function downloadAndValidateImage(url, accountName) {
-  let res;
-  try {
-    res = await fetch(url);
-  } catch (err) {
-    throw new Error(`сеть: ${err.message}`);
-  }
-  if (!res.ok) throw new Error(`HTTP ${res.status} при скачивании`);
+// Скачивает (или декодирует base64) картинку, валидирует и возвращает ArrayBuffer
+async function downloadAndValidateImage(url) {
+  let buffer;
 
-  const buffer = await res.arrayBuffer();
-  console.log(`    Скачано: ${Math.round(buffer.byteLength / 1024)} KB`);
+  if (url.startsWith('data:')) {
+    // base64 data URL — декодируем напрямую, без сетевого запроса
+    const base64 = url.split(',')[1];
+    if (!base64) throw new Error('Пустой base64 в data URL');
+    const nodeBuf = Buffer.from(base64, 'base64');
+    buffer = nodeBuf.buffer.slice(nodeBuf.byteOffset, nodeBuf.byteOffset + nodeBuf.byteLength);
+    console.log(`    Декодировано из base64: ${Math.round(buffer.byteLength / 1024)} KB`);
+  } else {
+    // Обычный URL — скачиваем
+    let res;
+    try {
+      res = await fetch(url);
+    } catch (err) {
+      throw new Error(`сеть: ${err.message}`);
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status} при скачивании`);
+    buffer = await res.arrayBuffer();
+    console.log(`    Скачано: ${Math.round(buffer.byteLength / 1024)} KB`);
+  }
 
   const check = validateImageBuffer(buffer);
   if (!check.ok) throw new Error(check.reason);
