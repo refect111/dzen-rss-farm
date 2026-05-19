@@ -317,19 +317,41 @@ async function tgRequest(method, body) {
   return json;
 }
 
-async function sendTelegramPhoto(channelId, photoUrl) {
-  // Скачиваем картинку как буфер — Telegram не всегда может достучаться до DALL-E URL
-  let imageBuffer;
-  try {
-    const imgRes = await fetch(photoUrl);
-    if (!imgRes.ok) throw new Error(`HTTP ${imgRes.status}`);
-    imageBuffer = await imgRes.arrayBuffer();
-    console.log(`    Картинка скачана (${Math.round(imageBuffer.byteLength / 1024)} KB)`);
-  } catch (err) {
-    throw new Error(`Не удалось скачать картинку с DALL-E: ${err.message}`);
+// Проверяет буфер: размер и магические байты PNG/JPEG
+function validateImageBuffer(buffer) {
+  if (buffer.byteLength < 10240) {
+    return { ok: false, reason: `слишком маленький файл: ${buffer.byteLength} байт (нужно > 10 KB)` };
   }
+  const b = new Uint8Array(buffer.slice(0, 4));
+  const isPng = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47;
+  const isJpg = b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF;
+  if (!isPng && !isJpg) {
+    const hex = Array.from(b).map(x => x.toString(16).padStart(2, '0')).join(' ');
+    return { ok: false, reason: `не PNG и не JPEG (первые байты: ${hex})` };
+  }
+  return { ok: true };
+}
 
-  // Отправляем через multipart/form-data
+// Скачивает картинку, валидирует и возвращает ArrayBuffer
+async function downloadAndValidateImage(url, accountName) {
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    throw new Error(`сеть: ${err.message}`);
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status} при скачивании`);
+
+  const buffer = await res.arrayBuffer();
+  console.log(`    Скачано: ${Math.round(buffer.byteLength / 1024)} KB`);
+
+  const check = validateImageBuffer(buffer);
+  if (!check.ok) throw new Error(check.reason);
+
+  return buffer;
+}
+
+async function sendTelegramPhotoBuffer(channelId, imageBuffer) {
   const form = new FormData();
   form.append('chat_id', channelId);
   form.append('photo', new Blob([imageBuffer], { type: 'image/png' }), 'image.png');
@@ -356,14 +378,12 @@ async function sendTelegramMessage(channelId, text, parseMode = 'HTML') {
   }
 }
 
-async function postToTelegram(channelId, imageUrl, title, body, hashtags) {
-  // 1. Фото
-  if (imageUrl) {
-    await sendTelegramPhoto(channelId, imageUrl);
-    await new Promise(r => setTimeout(r, 600));
-  }
+async function postToTelegram(channelId, imageBuffer, title, body, hashtags) {
+  // 1. Фото (buffer уже проверен)
+  await sendTelegramPhotoBuffer(channelId, imageBuffer);
+  await new Promise(r => setTimeout(r, 600));
 
-  // 2. Текст: жирный заголовок (HTML) + чистый текст статьи + хэштеги
+  // 2. Текст: жирный заголовок + статья + хэштеги
   const safeTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const fullText  = `<b>${safeTitle}</b>\n\n${body}\n\n${hashtags}`;
   await sendTelegramMessage(channelId, fullText);
@@ -439,48 +459,73 @@ async function generateAll() {
   const ts = new Date().toISOString();
   console.log(`\n[${ts}] ▶ Начало генерации статей...`);
 
+  let published = 0;
+  let skipped   = 0;
+
   for (const account of ACCOUNTS) {
     try {
-      console.log(`  → Генерирую статью для "${account.name}"...`);
+      // ── Этап 1: генерация статьи ──────────────────────────────────────────
+      console.log(`\n  [${account.name}] → Генерирую статью...`);
       const { title, body: rawBody, topic, brand, dallePrompt, hashtags } = await generateArticle(account);
-      console.log(`  ✓ Статья: "${title}" (бренд: ${brand})`);
+      console.log(`  [${account.name}] ✓ Статья: "${title}" (бренд: ${brand})`);
 
-      // Этап 2 — редактура
+      // ── Этап 2: редактура ─────────────────────────────────────────────────
       let body = rawBody;
       try {
-        console.log(`  → Редактирую статью...`);
+        console.log(`  [${account.name}] → Редактирую статью...`);
         body = await editArticle(rawBody);
-        console.log(`  ✓ Редактура завершена`);
+        console.log(`  [${account.name}] ✓ Редактура завершена`);
       } catch (err) {
-        console.error(`  ✗ Ошибка редактуры, используем оригинал: ${err.message}`);
+        console.error(`  [${account.name}] ✗ Ошибка редактуры, используем оригинал: ${err.message}`);
       }
 
-      // Генерация картинки DALL-E
+      // ── Этап 3: генерация картинки DALL-E ────────────────────────────────
       let imageUrl = null;
       try {
-        console.log(`  → DALL-E промпт: "${dallePrompt.slice(0, 100)}${dallePrompt.length > 100 ? '…' : ''}"`);
+        console.log(`  [${account.name}] → DALL-E: "${dallePrompt.slice(0, 90)}…"`);
         imageUrl = await generateDalleImage(dallePrompt);
-        console.log(`  ✓ Картинка сгенерирована: ${imageUrl.slice(0, 60)}…`);
+        console.log(`  [${account.name}] ✓ URL картинки получен`);
       } catch (err) {
-        console.error(`  ✗ DALL-E ошибка для "${account.name}":`);
-        console.error(`    ${err.message}`);
-        console.error(`    Промпт: ${dallePrompt}`);
-        console.error(`    Публикуем без картинки`);
+        console.error(`  [${account.name}] ✗ DALL-E ошибка: ${err.message}`);
       }
 
-      // Публикация в Telegram
+      // ── Этап 4: скачивание и проверка картинки ───────────────────────────
+      let imageBuffer = null;
+      if (imageUrl) {
+        try {
+          console.log(`  [${account.name}] → Проверяю картинку...`);
+          imageBuffer = await downloadAndValidateImage(imageUrl, account.name);
+          console.log(`  [${account.name}] ✓ Картинка прошла проверку`);
+        } catch (err) {
+          console.error(`  [${account.name}] ✗ ОШИБКА: картинка не прошла проверку`);
+          console.error(`    Причина: ${err.message}`);
+          console.error(`    Пост пропущен — публикация без картинки не выполняется`);
+          skipped++;
+          await new Promise(r => setTimeout(r, 4000));
+          continue;
+        }
+      } else {
+        console.error(`  [${account.name}] ✗ ОШИБКА: картинка не сгенерирована, пост пропущен`);
+        skipped++;
+        await new Promise(r => setTimeout(r, 4000));
+        continue;
+      }
+
+      // ── Этап 5: публикация в Telegram ────────────────────────────────────
       if (account.telegramChannel) {
         try {
-          console.log(`  → Telegram ${account.telegramChannel}: отправляю ${imageUrl ? 'фото + текст' : 'только текст (без картинки)'}...`);
-          await postToTelegram(account.telegramChannel, imageUrl, title, body, hashtags);
-          console.log(`  ✓ Опубликовано в Telegram ${account.telegramChannel}`);
+          console.log(`  [${account.name}] → Публикую в Telegram ${account.telegramChannel}...`);
+          await postToTelegram(account.telegramChannel, imageBuffer, title, body, hashtags);
+          console.log(`  [${account.name}] ✓ Опубликовано с картинкой`);
         } catch (err) {
-          console.error(`  ✗ Telegram ошибка для "${account.name}":`);
-          console.error(`    ${err.message}`);
+          console.error(`  [${account.name}] ✗ Telegram ошибка: ${err.message}`);
+          skipped++;
+          await new Promise(r => setTimeout(r, 4000));
+          continue;
         }
       }
 
-      // Сохраняем в RSS-хранилище
+      // ── Сохраняем в RSS ───────────────────────────────────────────────────
       const article = {
         guid:    `${account.id}-${Date.now()}`,
         title,
@@ -492,14 +537,22 @@ async function generateAll() {
       store[account.id].unshift(article);
       if (store[account.id].length > 60) store[account.id].length = 60;
 
-      // Пауза между аккаунтами
+      published++;
       await new Promise(r => setTimeout(r, 4000));
+
     } catch (err) {
-      console.error(`  ✗ Ошибка для "${account.name}": ${err.message}`);
+      console.error(`  [${account.name}] ✗ Критическая ошибка: ${err.message}`);
+      skipped++;
     }
   }
 
   saveStore();
+
+  const total = ACCOUNTS.length;
+  console.log(`\n${'─'.repeat(48)}`);
+  console.log(`✅ Опубликовано с картинкой: ${published} из ${total}`);
+  console.log(`❌ Пропущено из-за ошибки:   ${skipped} из ${total}`);
+  console.log(`${'─'.repeat(48)}`);
   console.log(`[${new Date().toISOString()}] ✔ Генерация завершена.\n`);
 }
 
