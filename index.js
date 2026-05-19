@@ -210,7 +210,34 @@ async function tgRequest(method, body) {
 }
 
 async function sendTelegramPhoto(channelId, photoUrl) {
-  return tgRequest('sendPhoto', { chat_id: channelId, photo: photoUrl });
+  // Скачиваем картинку как буфер — Telegram не всегда может достучаться до DALL-E URL
+  let imageBuffer;
+  try {
+    const imgRes = await fetch(photoUrl);
+    if (!imgRes.ok) throw new Error(`HTTP ${imgRes.status}`);
+    imageBuffer = await imgRes.arrayBuffer();
+    console.log(`    Картинка скачана (${Math.round(imageBuffer.byteLength / 1024)} KB)`);
+  } catch (err) {
+    throw new Error(`Не удалось скачать картинку с DALL-E: ${err.message}`);
+  }
+
+  // Отправляем через multipart/form-data
+  const form = new FormData();
+  form.append('chat_id', channelId);
+  form.append('photo', new Blob([imageBuffer], { type: 'image/png' }), 'image.png');
+
+  let res;
+  try {
+    res = await fetch(`${TELEGRAM_API}/sendPhoto`, { method: 'POST', body: form });
+  } catch (err) {
+    throw new Error(`Telegram sendPhoto сетевая ошибка: ${err.message}`);
+  }
+
+  const json = await res.json();
+  if (!json.ok) {
+    throw new Error(`Telegram sendPhoto [${json.error_code ?? res.status}]: ${json.description}`);
+  }
+  return json;
 }
 
 async function sendTelegramMessage(channelId, text, parseMode = 'HTML') {
