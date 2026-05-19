@@ -231,7 +231,10 @@ function loadStore() {
     try { store = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
     catch { store = {}; }
   }
-  ACCOUNTS.forEach(a => { if (!store[a.id]) store[a.id] = []; });
+  ACCOUNTS.forEach(a => {
+    if (!store[a.id]) store[a.id] = [];
+    if (!store[a.id + '_lastType']) store[a.id + '_lastType'] = 'short'; // первой идёт 'full'
+  });
 }
 
 function saveStore() {
@@ -484,13 +487,26 @@ async function editArticle(body) {
 
 // ─── Генерация статьи ─────────────────────────────────────────────────────────
 
-async function generateArticle(account) {
+async function generateArticle(account, type = 'full') {
   const topic = pickRandom(account.topics);
   const brand = pickRandom(BRANDS);
 
   const system = account.buildSystem(brand);
 
-  const user = `Напиши статью на тему: «${topic}».
+  const user = type === 'short'
+    ? `Напиши короткую заметку-лайфхак на тему: «${topic}».
+
+Строго соблюдай формат:
+
+ЗАГОЛОВОК: [цепляющий заголовок до 60 символов]
+
+[Текст заметки. 300-400 символов. Один конкретный лайфхак или совет.
+Обычный текст без HTML, без звёздочек. Живо и по делу.]
+
+КАРТИНКА: [описание для DALL-E на английском, реалистичная бытовая сцена, без людей, без текста, фотореалистичный стиль, 1 предложение]
+
+ХЭШТЕГИ: [4-5 хэштегов через пробел, формат #слово]`
+    : `Напиши статью на тему: «${topic}».
 
 Строго соблюдай формат — четыре блока подряд:
 
@@ -507,7 +523,7 @@ async function generateArticle(account) {
   const resp = await openai.chat.completions.create({
     model:       'gpt-4o-mini',
     messages:    [{ role: 'system', content: system }, { role: 'user', content: user }],
-    max_tokens:  2800,
+    max_tokens:  type === 'short' ? 800 : 2800,
     temperature: 0.85,
   });
 
@@ -527,7 +543,7 @@ async function generateArticle(account) {
     .replace(/\nКАРТИНКА:[\s\S]*/m, '')
     .trim();
 
-  return { title, body, topic, brand, dallePrompt, hashtags };
+  return { title, body, topic, brand, dallePrompt, hashtags, type };
 }
 
 // ─── Цикл генерации для всех аккаунтов ───────────────────────────────────────
@@ -541,28 +557,30 @@ async function generateAll() {
 
   for (const account of ACCOUNTS) {
     try {
-      // ── Этап 1: генерация статьи ──────────────────────────────────────────
-      console.log(`\n  [${account.name}] → Генерирую статью...`);
-      const { title, body: rawBody, topic, brand, dallePrompt, hashtags } = await generateArticle(account);
-      console.log(`  [${account.name}] ✓ Статья: "${title}" (бренд: ${brand})`);
+      // ── Этап 1: определяем тип и генерируем статью ───────────────────────
+      const articleType = store[account.id + '_lastType'] === 'full' ? 'short' : 'full';
+      console.log(`\n  [${account.name}] → Генерирую ${articleType === 'short' ? 'короткую заметку' : 'полную статью'}...`);
+      const { title, body: rawBody, topic, brand, dallePrompt, hashtags, type } = await generateArticle(account, articleType);
+      console.log(`  [${account.name}] ✓ "${title}" (тип: ${type}, бренд: ${brand})`);
 
-      // ── Этап 2: редактура ─────────────────────────────────────────────────
+      // ── Этап 2: редактура и проверка WB (только для полных статей) ────────
       let body = rawBody;
-      try {
-        console.log(`  [${account.name}] → Редактирую статью...`);
-        body = await editArticle(rawBody);
-        console.log(`  [${account.name}] ✓ Редактура завершена`);
-      } catch (err) {
-        console.error(`  [${account.name}] ✗ Ошибка редактуры, используем оригинал: ${err.message}`);
-      }
+      if (type === 'full') {
+        try {
+          console.log(`  [${account.name}] → Редактирую статью...`);
+          body = await editArticle(rawBody);
+          console.log(`  [${account.name}] ✓ Редактура завершена`);
+        } catch (err) {
+          console.error(`  [${account.name}] ✗ Ошибка редактуры, используем оригинал: ${err.message}`);
+        }
 
-      // ── Этап 2б: проверка бренда и артикулов WB ───────────────────────────
-      try {
-        console.log(`  [${account.name}] → Проверяю бренд и артикулы WB...`);
-        body = await enforceBrandAndArticle(body, topic, brand);
-        console.log(`  [${account.name}] ✓ Бренд и артикулы WB проверены`);
-      } catch (err) {
-        console.error(`  [${account.name}] ✗ Ошибка проверки бренда/артикулов, используем предыдущую версию: ${err.message}`);
+        try {
+          console.log(`  [${account.name}] → Проверяю бренд и артикулы WB...`);
+          body = await enforceBrandAndArticle(body, topic, brand);
+          console.log(`  [${account.name}] ✓ Бренд и артикулы WB проверены`);
+        } catch (err) {
+          console.error(`  [${account.name}] ✗ Ошибка проверки бренда/артикулов: ${err.message}`);
+        }
       }
 
       // ── Этап 3: генерация картинки DALL-E ────────────────────────────────
@@ -618,10 +636,12 @@ async function generateAll() {
         body,
         topic,
         brand,
+        type,
         pubDate: new Date().toISOString(),
       };
       store[account.id].unshift(article);
       if (store[account.id].length > 60) store[account.id].length = 60;
+      store[account.id + '_lastType'] = type;
 
       published++;
       await new Promise(r => setTimeout(r, 4000));
