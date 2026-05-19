@@ -2,7 +2,7 @@
 
 console.log('PORT от Railway:', process.env.PORT);
 
-require('dotenv').config();
+require('dotenv').config({ path: '.env' });
 
 const express = require('express');
 const cron    = require('node-cron');
@@ -22,8 +22,7 @@ if (!process.env.OPENAI_API_KEY) {
   process.exit(1);
 }
 if (!process.env.TELEGRAM_BOT_TOKEN) {
-  console.error('Ошибка: переменная TELEGRAM_BOT_TOKEN не задана. Создайте файл .env');
-  process.exit(1);
+  console.warn('Предупреждение: TELEGRAM_BOT_TOKEN не задана в .env, используется Railway Variables');
 }
 
 const openai          = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
