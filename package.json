@@ -17,6 +17,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "canvas": "^3.2.3",
     "dotenv": "^17.4.2",
     "express": "^4.22.2",
     "node-cron": "^4.2.1",

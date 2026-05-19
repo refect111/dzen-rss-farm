@@ -8,7 +8,7 @@ const express = require('express');
 const cron    = require('node-cron');
 const OpenAI  = require('openai');
 const RSS     = require('rss');
-const sharp   = require('sharp');
+const { createCanvas, loadImage } = require('canvas');
 const fs      = require('fs');
 const path    = require('path');
 
@@ -269,36 +269,27 @@ function splitText(text, maxLen = 4096) {
 // ─── Наложение заголовка на картинку ─────────────────────────────────────────
 
 async function overlayTitleOnImage(imageBuffer, title) {
-  const words     = title.split(/\s+/).slice(0, 5).join(' ');
-  const meta      = await sharp(imageBuffer).metadata();
-  const { width, height } = meta;
-  const barHeight = 80;
-  const y         = height - barHeight;
+  const words = title.split(' ').slice(0, 5).join(' ');
 
-  // Экранируем символы для SVG
-  const safeText = words
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  const img    = await loadImage(imageBuffer);
+  const canvas = createCanvas(img.width, img.height);
+  const ctx    = canvas.getContext('2d');
 
-  const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-  <rect x="0" y="${y}" width="${width}" height="${barHeight}" fill="black" fill-opacity="0.55"/>
-  <text
-    x="${Math.round(width / 2)}"
-    y="${y + barHeight - 20}"
-    font-size="36"
-    font-family="sans-serif"
-    fill="white"
-    text-anchor="middle"
-    dominant-baseline="auto"
-  >${safeText}</text>
-</svg>`;
+  // Рисуем исходное изображение
+  ctx.drawImage(img, 0, 0);
 
-  return sharp(imageBuffer)
-    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-    .png()
-    .toBuffer();
+  // Полупрозрачная подложка снизу
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+  ctx.fillRect(0, img.height - 110, img.width, 110);
+
+  // Текст
+  ctx.fillStyle    = 'white';
+  ctx.font         = 'bold 42px Arial';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(words, img.width / 2, img.height - 55);
+
+  return canvas.toBuffer('image/png');
 }
 
 // ─── DALL-E генерация изображения ─────────────────────────────────────────────
