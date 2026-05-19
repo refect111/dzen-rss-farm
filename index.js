@@ -166,23 +166,32 @@ function splitText(text, maxLen = 4096) {
 // ─── DALL-E генерация изображения ─────────────────────────────────────────────
 
 async function generateDalleImage(dallePrompt) {
-  let response;
+  let res;
   try {
-    response = await openai.images.generate({
-      model:   'dall-e-3',
-      prompt:  dallePrompt,
-      n:       1,
-      size:    '1024x1024',
-      quality: 'standard',
+    res = await fetch('https://api.openai.com/v1/images/generations', {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({
+        model:  'dall-e-3',
+        prompt: dallePrompt,
+        n:      1,
+        size:   '1024x1024',
+      }),
     });
   } catch (err) {
-    const status  = err.status  ?? err.statusCode ?? '—';
-    const code    = err.code    ?? '—';
-    const detail  = err.message ?? String(err);
-    throw new Error(`DALL-E API error [status=${status} code=${code}]: ${detail}`);
+    throw new Error(`DALL-E сетевая ошибка: ${err.message}`);
   }
 
-  const url = response?.data?.[0]?.url;
+  const json = await res.json();
+  if (!res.ok) {
+    const detail = json?.error?.message ?? JSON.stringify(json);
+    throw new Error(`DALL-E API error [${res.status}]: ${detail}`);
+  }
+
+  const url = json?.data?.[0]?.url;
   if (!url) throw new Error('DALL-E вернул пустой ответ (нет URL изображения)');
   return url;
 }
