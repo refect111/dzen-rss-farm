@@ -166,26 +166,46 @@ function splitText(text, maxLen = 4096) {
 // ─── DALL-E генерация изображения ─────────────────────────────────────────────
 
 async function generateDalleImage(dallePrompt) {
-  const response = await openai.images.generate({
-    model:   'dall-e-3',
-    prompt:  dallePrompt,
-    n:       1,
-    size:    '1024x1024',
-    quality: 'standard',
-  });
-  return response.data[0].url;
+  let response;
+  try {
+    response = await openai.images.generate({
+      model:   'dall-e-3',
+      prompt:  dallePrompt,
+      n:       1,
+      size:    '1024x1024',
+      quality: 'standard',
+    });
+  } catch (err) {
+    const status  = err.status  ?? err.statusCode ?? '—';
+    const code    = err.code    ?? '—';
+    const detail  = err.message ?? String(err);
+    throw new Error(`DALL-E API error [status=${status} code=${code}]: ${detail}`);
+  }
+
+  const url = response?.data?.[0]?.url;
+  if (!url) throw new Error('DALL-E вернул пустой ответ (нет URL изображения)');
+  return url;
 }
 
 // ─── Telegram API ─────────────────────────────────────────────────────────────
 
 async function tgRequest(method, body) {
-  const res = await fetch(`${TELEGRAM_API}/${method}`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`${TELEGRAM_API}/${method}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+  } catch (err) {
+    throw new Error(`Telegram ${method} сетевая ошибка: ${err.message}`);
+  }
+
   const json = await res.json();
-  if (!json.ok) throw new Error(`Telegram ${method}: ${json.description}`);
+  if (!json.ok) {
+    const errorCode = json.error_code ?? res.status;
+    throw new Error(`Telegram ${method} [${errorCode}]: ${json.description}`);
+  }
   return json;
 }
 
@@ -275,21 +295,25 @@ async function generateAll() {
       // Генерация картинки DALL-E
       let imageUrl = null;
       try {
-        console.log(`  → DALL-E: ${dallePrompt.slice(0, 80)}...`);
+        console.log(`  → DALL-E промпт: "${dallePrompt.slice(0, 100)}${dallePrompt.length > 100 ? '…' : ''}"`);
         imageUrl = await generateDalleImage(dallePrompt);
-        console.log(`  ✓ Картинка сгенерирована`);
+        console.log(`  ✓ Картинка сгенерирована: ${imageUrl.slice(0, 60)}…`);
       } catch (err) {
-        console.error(`  ✗ DALL-E ошибка: ${err.message}`);
+        console.error(`  ✗ DALL-E ошибка для "${account.name}":`);
+        console.error(`    ${err.message}`);
+        console.error(`    Промпт: ${dallePrompt}`);
+        console.error(`    Публикуем без картинки`);
       }
 
       // Публикация в Telegram
       if (account.telegramChannel) {
         try {
-          console.log(`  → Публикую в Telegram ${account.telegramChannel}...`);
+          console.log(`  → Telegram ${account.telegramChannel}: отправляю ${imageUrl ? 'фото + текст' : 'только текст (без картинки)'}...`);
           await postToTelegram(account.telegramChannel, imageUrl, title, body, hashtags);
-          console.log(`  ✓ Опубликовано в Telegram`);
+          console.log(`  ✓ Опубликовано в Telegram ${account.telegramChannel}`);
         } catch (err) {
-          console.error(`  ✗ Telegram ошибка: ${err.message}`);
+          console.error(`  ✗ Telegram ошибка для "${account.name}":`);
+          console.error(`    ${err.message}`);
         }
       }
 
