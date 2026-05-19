@@ -234,6 +234,24 @@ async function postToTelegram(channelId, imageUrl, title, body, hashtags) {
   await sendTelegramMessage(channelId, fullText);
 }
 
+// ─── Редактура статьи (второй проход) ────────────────────────────────────────
+
+async function editArticle(body) {
+  const resp = await openai.chat.completions.create({
+    model:       'gpt-4o-mini',
+    messages: [
+      {
+        role:    'system',
+        content: 'Ты редактор. Проверь эту статью и исправь:\n1. Убери все HTML теги если есть\n2. Исправь логические ошибки и нелогичные переходы\n3. Убери повторяющиеся заголовки\n4. Если бренд упоминается больше 2 раз — сократи до 1-2 упоминаний\n5. Убедись что текст читается естественно, без агрессивной рекламы\n6. Исправь грамматические ошибки\nВерни только исправленный текст без пояснений.',
+      },
+      { role: 'user', content: body },
+    ],
+    max_tokens:  2800,
+    temperature: 0.3,
+  });
+  return resp.choices[0].message.content.trim();
+}
+
 // ─── Генерация статьи ─────────────────────────────────────────────────────────
 
 async function generateArticle(account) {
@@ -289,8 +307,18 @@ async function generateAll() {
   for (const account of ACCOUNTS) {
     try {
       console.log(`  → Генерирую статью для "${account.name}"...`);
-      const { title, body, topic, brand, dallePrompt, hashtags } = await generateArticle(account);
+      const { title, body: rawBody, topic, brand, dallePrompt, hashtags } = await generateArticle(account);
       console.log(`  ✓ Статья: "${title}" (бренд: ${brand})`);
+
+      // Этап 2 — редактура
+      let body = rawBody;
+      try {
+        console.log(`  → Редактирую статью...`);
+        body = await editArticle(rawBody);
+        console.log(`  ✓ Редактура завершена`);
+      } catch (err) {
+        console.error(`  ✗ Ошибка редактуры, используем оригинал: ${err.message}`);
+      }
 
       // Генерация картинки DALL-E
       let imageUrl = null;
