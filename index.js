@@ -178,7 +178,7 @@ async function generateDalleImage(dallePrompt) {
         model:  'dall-e-3',
         prompt: dallePrompt,
         n:      1,
-        size:   '1024x1024',
+        size:   '1792x1024',
       }),
     });
   } catch (err) {
