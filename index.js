@@ -409,8 +409,19 @@ async function postToTelegram(channelId, imageBuffer, title, body, hashtags) {
 
   // Caption ограничен 1024 символами (включая HTML-теги)
   const maxCaptionBody = 1024 - header.length;
-  const captionBody    = body.slice(0, maxCaptionBody);
-  const remainder      = body.slice(maxCaptionBody).trim();
+  let splitAt = maxCaptionBody;
+  if (body.length > maxCaptionBody) {
+    // Ищем последнее окончание предложения в пределах лимита
+    const chunk = body.slice(0, maxCaptionBody);
+    const lastSentenceEnd = Math.max(
+      chunk.lastIndexOf('.'),
+      chunk.lastIndexOf('!'),
+      chunk.lastIndexOf('?'),
+    );
+    if (lastSentenceEnd > maxCaptionBody / 2) splitAt = lastSentenceEnd + 1;
+  }
+  const captionBody = body.slice(0, splitAt);
+  const remainder   = body.slice(splitAt).trim();
   const caption        = header + captionBody;
 
   // 1. Фото с caption (заголовок + начало текста, без хэштегов)
