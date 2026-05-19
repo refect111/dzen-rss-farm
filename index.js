@@ -8,6 +8,7 @@ const express = require('express');
 const cron    = require('node-cron');
 const OpenAI  = require('openai');
 const RSS     = require('rss');
+const sharp   = require('sharp');
 const fs      = require('fs');
 const path    = require('path');
 
@@ -263,6 +264,41 @@ function splitText(text, maxLen = 4096) {
     start = end;
   }
   return chunks.filter(c => c.length > 0);
+}
+
+// ─── Наложение заголовка на картинку ─────────────────────────────────────────
+
+async function overlayTitleOnImage(imageBuffer, title) {
+  const words     = title.split(/\s+/).slice(0, 5).join(' ');
+  const meta      = await sharp(imageBuffer).metadata();
+  const { width, height } = meta;
+  const barHeight = 80;
+  const y         = height - barHeight;
+
+  // Экранируем символы для SVG
+  const safeText = words
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="${y}" width="${width}" height="${barHeight}" fill="black" fill-opacity="0.55"/>
+  <text
+    x="${Math.round(width / 2)}"
+    y="${y + barHeight - 20}"
+    font-size="36"
+    font-family="sans-serif"
+    fill="white"
+    text-anchor="middle"
+    dominant-baseline="auto"
+  >${safeText}</text>
+</svg>`;
+
+  return sharp(imageBuffer)
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .png()
+    .toBuffer();
 }
 
 // ─── DALL-E генерация изображения ─────────────────────────────────────────────
@@ -600,6 +636,8 @@ async function generateAll() {
           console.log(`  [${account.name}] → Проверяю картинку...`);
           imageBuffer = await downloadAndValidateImage(imageUrl, account.name);
           console.log(`  [${account.name}] ✓ Картинка прошла проверку`);
+          imageBuffer = await overlayTitleOnImage(imageBuffer, title);
+          console.log(`  [${account.name}] ✓ Заголовок наложен на картинку`);
         } catch (err) {
           console.error(`  [${account.name}] ✗ ОШИБКА: картинка не прошла проверку`);
           console.error(`    Причина: ${err.message}`);
