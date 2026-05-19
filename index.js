@@ -372,10 +372,14 @@ async function downloadAndValidateImage(url) {
   return buffer;
 }
 
-async function sendTelegramPhotoBuffer(channelId, imageBuffer) {
+async function sendTelegramPhotoBuffer(channelId, imageBuffer, caption = '', parseMode = 'HTML') {
   const form = new FormData();
   form.append('chat_id', channelId);
   form.append('photo', new Blob([imageBuffer], { type: 'image/png' }), 'image.png');
+  if (caption) {
+    form.append('caption', caption);
+    form.append('parse_mode', parseMode);
+  }
 
   let res;
   try {
@@ -400,14 +404,26 @@ async function sendTelegramMessage(channelId, text, parseMode = 'HTML') {
 }
 
 async function postToTelegram(channelId, imageBuffer, title, body, hashtags) {
-  // 1. Фото (buffer уже проверен)
-  await sendTelegramPhotoBuffer(channelId, imageBuffer);
+  const safeTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const header    = `<b>${safeTitle}</b>\n\n`;
+
+  // Caption ограничен 1024 символами (включая HTML-теги)
+  const maxCaptionBody = 1024 - header.length;
+  const captionBody    = body.slice(0, maxCaptionBody);
+  const remainder      = body.slice(maxCaptionBody).trim();
+  const caption        = header + captionBody;
+
+  // 1. Фото с caption (заголовок + начало текста, без хэштегов)
+  await sendTelegramPhotoBuffer(channelId, imageBuffer, caption, 'HTML');
   await new Promise(r => setTimeout(r, 600));
 
-  // 2. Текст: жирный заголовок + статья + хэштеги
-  const safeTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const fullText  = `<b>${safeTitle}</b>\n\n${body}\n\n${hashtags}`;
-  await sendTelegramMessage(channelId, fullText);
+  // 2. Остаток текста или просто хэштеги — в последнем сообщении
+  if (remainder) {
+    const part2 = `ЧАСТЬ 2 (${title})\n\n${remainder}\n\n${hashtags}`;
+    await sendTelegramMessage(channelId, part2);
+  } else {
+    await sendTelegramMessage(channelId, hashtags);
+  }
 }
 
 // ─── Редактура статьи (второй проход) ────────────────────────────────────────
