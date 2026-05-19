@@ -8,7 +8,6 @@ const express = require('express');
 const cron    = require('node-cron');
 const OpenAI  = require('openai');
 const RSS     = require('rss');
-const { createCanvas, loadImage } = require('canvas');
 const fs      = require('fs');
 const path    = require('path');
 
@@ -263,33 +262,6 @@ function splitText(text, maxLen = 4096) {
     start = end;
   }
   return chunks.filter(c => c.length > 0);
-}
-
-// ─── Наложение заголовка на картинку ─────────────────────────────────────────
-
-async function overlayTitleOnImage(imageBuffer, title) {
-  const words = title.split(' ').slice(0, 5).join(' ');
-
-  const buf    = Buffer.isBuffer(imageBuffer) ? imageBuffer : Buffer.from(imageBuffer);
-  const img    = await loadImage(`data:image/png;base64,${buf.toString('base64')}`);
-  const canvas = createCanvas(img.width, img.height);
-  const ctx    = canvas.getContext('2d');
-
-  // Рисуем исходное изображение
-  ctx.drawImage(img, 0, 0);
-
-  // Полупрозрачная подложка снизу
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-  ctx.fillRect(0, img.height - 110, img.width, 110);
-
-  // Текст
-  ctx.fillStyle    = 'white';
-  ctx.font         = 'bold 42px Arial';
-  ctx.textAlign    = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(words, img.width / 2, img.height - 55);
-
-  return canvas.toBuffer('image/png');
 }
 
 // ─── DALL-E генерация изображения ─────────────────────────────────────────────
@@ -627,8 +599,6 @@ async function generateAll() {
           console.log(`  [${account.name}] → Проверяю картинку...`);
           imageBuffer = await downloadAndValidateImage(imageUrl, account.name);
           console.log(`  [${account.name}] ✓ Картинка прошла проверку`);
-          imageBuffer = await overlayTitleOnImage(imageBuffer, title);
-          console.log(`  [${account.name}] ✓ Заголовок наложен на картинку`);
         } catch (err) {
           console.error(`  [${account.name}] ✗ ОШИБКА: картинка не прошла проверку`);
           console.error(`    Причина: ${err.message}`);
