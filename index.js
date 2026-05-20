@@ -133,7 +133,7 @@ const ACCOUNTS = [
     name:            'Антонина Петровна',
     telegramChannel: '@sekrety_baby_toni',
     vkToken:         process.env.VK_TOKEN_PUSHHIM,
-    vkGroup:         process.env.VK_GROUP_PUSHHIM,
+    vkGroupId:       '238894819',
     feedTitle:       'Антонина Петровна — Советы от соседки',
     feedDescription: 'Живые истории и находки по борьбе с домашними вредителями от Антонины Петровны, 62 года.',
     topics: [
@@ -167,7 +167,7 @@ ${getProductsText(brand)}`,
     name:            'Илья',
     telegramChannel: '@economniy_hoz',
     vkToken:         process.env.VK_TOKEN_DEZINSECTO,
-    vkGroup:         process.env.VK_GROUP_DEZINSECTO,
+    vkGroupId:       '238894738',
     feedTitle:       'Илья — Честный тест-драйв средств от вредителей',
     feedDescription: 'Реальные истории и тест-драйвы от молодого главы семьи. Без воды, с самоиронией.',
     topics: [
@@ -201,7 +201,7 @@ ${getProductsText(brand)}`,
     name:            'Про Хозяйство',
     telegramChannel: '@pro_hoz',
     vkToken:         process.env.VK_TOKEN_EXPERT,
-    vkGroup:         process.env.VK_GROUP_EXPERT,
+    vkGroupId:       '238894775',
     feedTitle:       'Про Хозяйство — Советы опытного хозяина',
     feedDescription: 'Честные советы по борьбе с вредителями от опытного хозяина загородного дома с курятником, баней и погребом.',
     topics: [
@@ -463,18 +463,19 @@ async function postToTelegram(channelId, imageBuffer, title, body, hashtags) {
 
 // ─── Публикация в VK ──────────────────────────────────────────────────────────
 
-async function postToVK(vkToken, vkGroup, imageBuffer, title, body, hashtags) {
-  const ownerId = `-${vkGroup.replace(/^-/, '')}`;  // гарантируем отрицательный owner_id
+async function postToVK(account, imageBuffer, title, body, hashtags) {
+  const { vkToken, vkGroupId } = account;
+  const ownerId = `-${vkGroupId}`;
   const VK_API  = 'https://api.vk.com/method';
-  const V       = '5.199';
+  const V       = '5.131';
 
-  // Шаг 1: получаем сервер для загрузки фото на стену
-  const serverRes = await fetch(
-    `${VK_API}/photos.getWallUploadServer?owner_id=${ownerId}&access_token=${vkToken}&v=${V}`,
+  // Шаг 1: получаем сервер для загрузки фото на стену группы
+  const serverRes  = await fetch(
+    `${VK_API}/photos.getWallUploadServer?group_id=${vkGroupId}&access_token=${vkToken}&v=${V}`,
   );
   const serverJson = await serverRes.json();
   if (!serverJson.response?.upload_url) {
-    throw new Error(`VK getWallUploadServer error: ${JSON.stringify(serverJson.error || serverJson)}`);
+    throw new Error(`VK getWallUploadServer: ${JSON.stringify(serverJson.error || serverJson)}`);
   }
   const uploadUrl = serverJson.response.upload_url;
 
@@ -484,12 +485,12 @@ async function postToVK(vkToken, vkGroup, imageBuffer, title, body, hashtags) {
   const uploadRes  = await fetch(uploadUrl, { method: 'POST', body: form });
   const uploadJson = await uploadRes.json();
   if (!uploadJson.photo) {
-    throw new Error(`VK photo upload error: ${JSON.stringify(uploadJson)}`);
+    throw new Error(`VK photo upload: ${JSON.stringify(uploadJson)}`);
   }
 
   // Шаг 3: сохраняем фото
   const saveParams = new URLSearchParams({
-    owner_id:     ownerId,
+    group_id:     vkGroupId,
     server:       uploadJson.server,
     photo:        uploadJson.photo,
     hash:         uploadJson.hash,
@@ -499,28 +500,28 @@ async function postToVK(vkToken, vkGroup, imageBuffer, title, body, hashtags) {
   const saveRes  = await fetch(`${VK_API}/photos.saveWallPhoto`, { method: 'POST', body: saveParams });
   const saveJson = await saveRes.json();
   if (!saveJson.response?.[0]) {
-    throw new Error(`VK saveWallPhoto error: ${JSON.stringify(saveJson.error || saveJson)}`);
+    throw new Error(`VK saveWallPhoto: ${JSON.stringify(saveJson.error || saveJson)}`);
   }
   const photo      = saveJson.response[0];
   const attachment = `photo${photo.owner_id}_${photo.id}`;
 
-  // Шаг 4: публикуем пост — VK не поддерживает HTML, убираем теги
+  // Шаг 4: публикуем пост (VK не поддерживает HTML — убираем теги)
   const plainBody  = body.replace(/<\/?b>/g, '');
   const postText   = `${title}\n\n${plainBody}\n\n${hashtags}`;
   const wallParams = new URLSearchParams({
-    owner_id:      ownerId,
-    from_group:    '1',
-    message:       postText,
-    attachments:   attachment,
-    access_token:  vkToken,
-    v:             V,
+    owner_id:     ownerId,
+    from_group:   '1',
+    message:      postText,
+    attachments:  attachment,
+    access_token: vkToken,
+    v:            V,
   });
   const wallRes  = await fetch(`${VK_API}/wall.post`, { method: 'POST', body: wallParams });
   const wallJson = await wallRes.json();
   if (!wallJson.response?.post_id) {
-    throw new Error(`VK wall.post error: ${JSON.stringify(wallJson.error || wallJson)}`);
+    throw new Error(`VK wall.post: ${JSON.stringify(wallJson.error || wallJson)}`);
   }
-  console.log(`    [VK] Пост опубликован, post_id: ${wallJson.response.post_id}`);
+  console.log(`    [VK] post_id: ${wallJson.response.post_id}`);
 }
 
 // ─── Проверка бренда и артикулов WB (третий проход) ──────────────────────────
@@ -726,16 +727,14 @@ async function generateAll() {
       }
 
       // ── Этап 6: публикация в VK ──────────────────────────────────────────
-      if (account.vkToken && account.vkGroup) {
+      if (account.vkToken && account.vkGroupId) {
         try {
-          console.log(`  [${account.name}] → Публикую в VK (группа ${account.vkGroup})...`);
-          await postToVK(account.vkToken, account.vkGroup, imageBuffer, title, body, hashtags);
+          console.log(`  [${account.name}] → Публикую в VK (группа ${account.vkGroupId})...`);
+          await postToVK(account, imageBuffer, title, body, hashtags);
           console.log(`  [${account.name}] ✓ Опубликовано в VK`);
         } catch (err) {
           console.error(`  [${account.name}] ✗ VK ошибка: ${err.message}`);
         }
-      } else {
-        console.log(`  [${account.name}] ℹ VK не настроен, пропускаем`);
       }
 
       // ── Сохраняем в RSS ───────────────────────────────────────────────────
