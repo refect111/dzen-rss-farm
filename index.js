@@ -15,6 +15,8 @@ const path    = require('path');
 
 // ─── Конфигурация ────────────────────────────────────────────────────────────
 
+let isGenerating = false;
+
 const PORT      = process.env.PORT;
 const DATA_FILE = path.join(__dirname, 'articles.json');
 
@@ -562,6 +564,13 @@ async function generateArticle(account, type = 'full') {
 // ─── Цикл генерации для всех аккаунтов ───────────────────────────────────────
 
 async function generateAll() {
+  if (isGenerating) {
+    console.log('⚠️ Генерация уже запущена, пропускаем дублирующий запуск');
+    return;
+  }
+  isGenerating = true;
+
+  try {
   const ts = new Date().toISOString();
   console.log(`\n[${ts}] ▶ Начало генерации статей...`);
 
@@ -673,6 +682,9 @@ async function generateAll() {
   console.log(`❌ Пропущено из-за ошибки:   ${skipped} из ${total}`);
   console.log(`${'─'.repeat(48)}`);
   console.log(`[${new Date().toISOString()}] ✔ Генерация завершена.\n`);
+  } finally {
+    isGenerating = false;
+  }
 }
 
 // ─── RSS-сборщик ──────────────────────────────────────────────────────────────
