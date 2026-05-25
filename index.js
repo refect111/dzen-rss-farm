@@ -474,11 +474,13 @@ async function postToVK(account, imageBuffer, title, body, hashtags) {
     .replace(/<i>(.*?)<\/i>/gi, '$1');
   const postText = `${cleanText(title)}\n\n${cleanText(body)}\n\n${hashtags}`;
 
+  const serviceToken = process.env.VK_SERVICE_TOKEN;
+
   // Пытаемся загрузить фото
   let attachment = null;
   try {
-    // Шаг 1: upload server (без owner_id/group_id)
-    const serverRes  = await fetch(`${VK_API}/photos.getWallUploadServer?access_token=${vkToken}&v=${V}`);
+    // Шаг 1: upload server — через service token с group_id
+    const serverRes  = await fetch(`${VK_API}/photos.getWallUploadServer?access_token=${serviceToken}&group_id=${vkGroupId}&v=${V}`);
     const serverJson = await serverRes.json();
     if (!serverJson.response?.upload_url) {
       throw new Error(`getWallUploadServer: ${JSON.stringify(serverJson.error || serverJson)}`);
@@ -493,13 +495,13 @@ async function postToVK(account, imageBuffer, title, body, hashtags) {
       throw new Error(`photo upload: ${JSON.stringify(uploadJson)}`);
     }
 
-    // Шаг 3: сохраняем фото
+    // Шаг 3: сохраняем фото — через service token с group_id
     const saveParams = new URLSearchParams({
       group_id:     vkGroupId,
       server:       uploadJson.server,
       photo:        uploadJson.photo,
       hash:         uploadJson.hash,
-      access_token: vkToken,
+      access_token: serviceToken,
       v:            V,
     });
     const saveRes  = await fetch(`${VK_API}/photos.saveWallPhoto`, { method: 'POST', body: saveParams });
