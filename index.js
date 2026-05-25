@@ -467,8 +467,12 @@ async function postToVK(account, imageBuffer, title, body, hashtags) {
   const ownerId  = `-${vkGroupId}`;
   const VK_API   = 'https://api.vk.com/method';
   const V        = '5.131';
-  const plainBody = body.replace(/<\/?b>/g, '');
-  const postText  = `${title}\n\n${plainBody}\n\n${hashtags}`;
+  const cleanText = (text) => text
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/<b>(.*?)<\/b>/gi, '$1')
+    .replace(/<i>(.*?)<\/i>/gi, '$1');
+  const postText = `${cleanText(title)}\n\n${cleanText(body)}\n\n${hashtags}`;
 
   // Пытаемся загрузить фото
   let attachment = null;
