@@ -879,6 +879,51 @@ app.post('/generate', (req, res) => {
   res.redirect('/');
 });
 
+app.post('/test-vk', async (req, res) => {
+  res.json({ ok: true, message: 'VK тест запущен, смотрите логи' });
+
+  try {
+    console.log('\n[TEST-VK] ▶ Тестовая публикация в ВК...');
+
+    for (const account of ACCOUNTS) {
+      if (!account.vkToken || !account.vkGroupId) {
+        console.log(`  [${account.name}] ℹ VK не настроен, пропускаем`);
+        continue;
+      }
+      try {
+        // Генерируем статью (тип не меняем — берём как есть)
+        const articleType = store[account.id + '_lastType'] === 'full' ? 'short' : 'full';
+        console.log(`\n  [${account.name}] → Генерирую ${articleType === 'short' ? 'короткую заметку' : 'полную статью'}...`);
+        const { title, body: rawBody, topic, brand, dallePrompt, hashtags, type } = await generateArticle(account, articleType);
+        console.log(`  [${account.name}] ✓ "${title}"`);
+
+        let body = rawBody;
+        if (type === 'full') {
+          try { body = await editArticle(body); } catch (e) { console.error(`  [${account.name}] ✗ editArticle: ${e.message}`); }
+          try { body = await enforceBrandAndArticle(body, topic, brand); } catch (e) { console.error(`  [${account.name}] ✗ enforceBrand: ${e.message}`); }
+        }
+
+        // Генерируем и валидируем картинку
+        const imageUrl = await generateDalleImage(dallePrompt);
+        const imageBuffer = await downloadAndValidateImage(imageUrl, account.name);
+        console.log(`  [${account.name}] ✓ Картинка готова`);
+
+        // Публикуем только в VK
+        await postToVK(account, imageBuffer, title, body, hashtags);
+        console.log(`  [${account.name}] ✓ Опубликовано в VK`);
+
+        await new Promise(r => setTimeout(r, 4000));
+      } catch (err) {
+        console.error(`  [${account.name}] ✗ Ошибка: ${err.message}`);
+      }
+    }
+
+    console.log('[TEST-VK] ✔ Тест завершён.\n');
+  } catch (err) {
+    console.error(`[TEST-VK] ✗ Критическая ошибка: ${err.message}`);
+  }
+});
+
 // ─── Старт ────────────────────────────────────────────────────────────────────
 
 loadStore();
