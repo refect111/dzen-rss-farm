@@ -464,63 +464,68 @@ async function postToTelegram(channelId, imageBuffer, title, body, hashtags) {
 
 async function postToVK(account, imageBuffer, title, body, hashtags) {
   const { vkToken, vkGroupId } = account;
-  const ownerId = `-${vkGroupId}`;
-  const VK_API  = 'https://api.vk.com/method';
-  const V       = '5.131';
+  const ownerId  = `-${vkGroupId}`;
+  const VK_API   = 'https://api.vk.com/method';
+  const V        = '5.131';
+  const plainBody = body.replace(/<\/?b>/g, '');
+  const postText  = `${title}\n\n${plainBody}\n\n${hashtags}`;
 
-  // Шаг 1: получаем сервер для загрузки фото (без owner_id/group_id)
-  const serverRes  = await fetch(
-    `${VK_API}/photos.getWallUploadServer?access_token=${vkToken}&v=${V}`,
-  );
-  const serverJson = await serverRes.json();
-  if (!serverJson.response?.upload_url) {
-    throw new Error(`VK getWallUploadServer: ${JSON.stringify(serverJson.error || serverJson)}`);
+  // Пытаемся загрузить фото
+  let attachment = null;
+  try {
+    // Шаг 1: upload server (без owner_id/group_id)
+    const serverRes  = await fetch(`${VK_API}/photos.getWallUploadServer?access_token=${vkToken}&v=${V}`);
+    const serverJson = await serverRes.json();
+    if (!serverJson.response?.upload_url) {
+      throw new Error(`getWallUploadServer: ${JSON.stringify(serverJson.error || serverJson)}`);
+    }
+
+    // Шаг 2: загружаем картинку через multipart
+    const form = new FormData();
+    form.append('photo', new Blob([imageBuffer], { type: 'image/png' }), 'photo.png');
+    const uploadRes  = await fetch(serverJson.response.upload_url, { method: 'POST', body: form });
+    const uploadJson = await uploadRes.json();
+    if (!uploadJson.photo) {
+      throw new Error(`photo upload: ${JSON.stringify(uploadJson)}`);
+    }
+
+    // Шаг 3: сохраняем фото
+    const saveParams = new URLSearchParams({
+      group_id:     vkGroupId,
+      server:       uploadJson.server,
+      photo:        uploadJson.photo,
+      hash:         uploadJson.hash,
+      access_token: vkToken,
+      v:            V,
+    });
+    const saveRes  = await fetch(`${VK_API}/photos.saveWallPhoto`, { method: 'POST', body: saveParams });
+    const saveJson = await saveRes.json();
+    if (!saveJson.response?.[0]) {
+      throw new Error(`saveWallPhoto: ${JSON.stringify(saveJson.error || saveJson)}`);
+    }
+    const photo = saveJson.response[0];
+    attachment  = `photo${photo.owner_id}_${photo.id}`;
+    console.log(`    [VK] Фото загружено: ${attachment}`);
+  } catch (photoErr) {
+    console.warn(`    [VK] Публикация без фото: ${photoErr.message}`);
   }
-  const uploadUrl = serverJson.response.upload_url;
 
-  // Шаг 2: загружаем картинку через multipart
-  const form = new FormData();
-  form.append('photo', new Blob([imageBuffer], { type: 'image/png' }), 'photo.png');
-  const uploadRes  = await fetch(uploadUrl, { method: 'POST', body: form });
-  const uploadJson = await uploadRes.json();
-  if (!uploadJson.photo) {
-    throw new Error(`VK photo upload: ${JSON.stringify(uploadJson)}`);
-  }
-
-  // Шаг 3: сохраняем фото
-  const saveParams = new URLSearchParams({
-    group_id:     vkGroupId,
-    server:       uploadJson.server,
-    photo:        uploadJson.photo,
-    hash:         uploadJson.hash,
-    access_token: vkToken,
-    v:            V,
-  });
-  const saveRes  = await fetch(`${VK_API}/photos.saveWallPhoto`, { method: 'POST', body: saveParams });
-  const saveJson = await saveRes.json();
-  if (!saveJson.response?.[0]) {
-    throw new Error(`VK saveWallPhoto: ${JSON.stringify(saveJson.error || saveJson)}`);
-  }
-  const photo      = saveJson.response[0];
-  const attachment = `photo${photo.owner_id}_${photo.id}`;
-
-  // Шаг 4: публикуем пост (VK не поддерживает HTML — убираем теги)
-  const plainBody  = body.replace(/<\/?b>/g, '');
-  const postText   = `${title}\n\n${plainBody}\n\n${hashtags}`;
-  const wallParams = new URLSearchParams({
+  // Шаг 4: публикуем пост (с фото если загрузилось, без — если нет)
+  const wallData = {
     owner_id:     ownerId,
     from_group:   '1',
     message:      postText,
-    attachments:  attachment,
     access_token: vkToken,
     v:            V,
-  });
-  const wallRes  = await fetch(`${VK_API}/wall.post`, { method: 'POST', body: wallParams });
+  };
+  if (attachment) wallData.attachments = attachment;
+
+  const wallRes  = await fetch(`${VK_API}/wall.post`, { method: 'POST', body: new URLSearchParams(wallData) });
   const wallJson = await wallRes.json();
   if (!wallJson.response?.post_id) {
     throw new Error(`VK wall.post: ${JSON.stringify(wallJson.error || wallJson)}`);
   }
-  console.log(`    [VK] post_id: ${wallJson.response.post_id}`);
+  console.log(`    [VK] post_id: ${wallJson.response.post_id}${attachment ? ' (с фото)' : ' (без фото)'}`);
 }
 
 // ─── Проверка бренда и артикулов WB (третий проход) ──────────────────────────
