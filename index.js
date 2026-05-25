@@ -15,10 +15,9 @@ const path    = require('path');
 
 // ─── Конфигурация ────────────────────────────────────────────────────────────
 
-let isGenerating = false;
-
 const PORT      = process.env.PORT;
 const DATA_FILE = path.join(__dirname, 'articles.json');
+const LOCK_FILE = path.join(__dirname, 'generating.lock');
 
 if (!process.env.OPENAI_API_KEY) {
   console.error('Ошибка: переменная OPENAI_API_KEY не задана. Создайте файл .env');
@@ -639,11 +638,16 @@ async function generateArticle(account, type = 'full') {
 // ─── Цикл генерации для всех аккаунтов ───────────────────────────────────────
 
 async function generateAll() {
-  if (isGenerating) {
-    console.log('⚠️ Генерация уже запущена, пропускаем дублирующий запуск');
-    return;
+  if (fs.existsSync(LOCK_FILE)) {
+    const lockTime = fs.statSync(LOCK_FILE).mtimeMs;
+    const age = Date.now() - lockTime;
+    if (age < 30 * 60 * 1000) {
+      console.log(`⚠️ Lock-файл существует (возраст ${Math.round(age / 1000)}с), генерация уже запущена`);
+      return;
+    }
+    console.log(`⚠️ Lock-файл найден но устарел (${Math.round(age / 60000)} мин), сбрасываем`);
   }
-  isGenerating = true;
+  fs.writeFileSync(LOCK_FILE, new Date().toISOString());
 
   try {
   const ts = new Date().toISOString();
@@ -769,7 +773,7 @@ async function generateAll() {
   console.log(`${'─'.repeat(48)}`);
   console.log(`[${new Date().toISOString()}] ✔ Генерация завершена.\n`);
   } finally {
-    isGenerating = false;
+    try { fs.unlinkSync(LOCK_FILE); } catch {}
   }
 }
 
