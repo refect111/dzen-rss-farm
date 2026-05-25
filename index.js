@@ -864,9 +864,14 @@ app.get('/', (req, res) => {
   ${rows}
 </table>
 <br>
-<form method="post" action="/generate">
+<form method="post" action="/generate" style="display:inline;">
   <button type="submit" style="padding:8px 20px;cursor:pointer;background:#007bff;color:#fff;border:none;border-radius:4px;">
     ▶ Сгенерировать и опубликовать сейчас
+  </button>
+</form>
+<form method="post" action="/test-vk" style="display:inline;">
+  <button type="submit" style="padding:8px 20px;cursor:pointer;background:#28a745;color:#fff;border:none;border-radius:4px;margin-left:10px;">
+    🧪 Тест ВК
   </button>
 </form>
 <p style="color:#888;font-size:13px">RSS-URL для Яндекс Дзен: <code>${baseUrl}/rss/{id}</code></p>
