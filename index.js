@@ -468,9 +468,9 @@ async function postToVK(account, imageBuffer, title, body, hashtags) {
   const VK_API  = 'https://api.vk.com/method';
   const V       = '5.131';
 
-  // Шаг 1: получаем сервер для загрузки фото на стену группы
+  // Шаг 1: получаем сервер для загрузки фото (без owner_id/group_id)
   const serverRes  = await fetch(
-    `${VK_API}/photos.getWallUploadServer?owner_id=-${vkGroupId}&access_token=${vkToken}&v=${V}`,
+    `${VK_API}/photos.getWallUploadServer?access_token=${vkToken}&v=${V}`,
   );
   const serverJson = await serverRes.json();
   if (!serverJson.response?.upload_url) {
